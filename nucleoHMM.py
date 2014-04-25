@@ -34,9 +34,11 @@ def main():
     type="str", dest="trainonly",
     help="Train model only and exit.")
 
-    parser.add_option("-o", "--output",
-    type="str", dest="output", default='output/NucleoHMM',
-    help="Name for output files. Default to: output/NucleoHMM_seq<seqnumber>.tsv")
+    parser.add_option("-o", "--outputDir",
+    type="str", dest="outdir", default='output/',
+    help="""Directory for output files. Default: to: output/
+    Files will be named as the fasta identifier, if provided.
+    If no will be named based on sequence number with the following prefix: NucleoHMM_seq<seqnumber>.tsv""")
 
     parser.add_option("-l", "--log",
     type="str", dest="log", default='logs/log.txt',
@@ -56,12 +58,12 @@ def main():
     # prepare directories for logs and output
     if not os.path.exists(os.path.dirname(options.log)):
         os.makedirs(os.path.dirname(options.log))
-    if not os.path.exists(os.path.dirname(options.output)):
-        os.makedirs(os.path.dirname(options.output))
+    if not os.path.exists(os.path.dirname(options.outdir)):
+        os.makedirs(os.path.dirname(options.outdir))
 
     # parse in/outfile argument
     infile = args[0]
-    outfile = options.output
+    outdir = options.outdir
 
     ####### Train model on data
     if options.train:
@@ -99,48 +101,36 @@ def main():
     i = 1
     skip = 0
     
-    for seq in seqs:
+    for ID, SEQ in seqs:
         ## preprocess sequence
-        seq = seq.strip().rstrip().upper()
-        
-        # skip empty lines
-        if seq == "":
-            logging.warning('Sequence %d was empty.' % (i - skip))
-            i += 1
-            skip += 1
-            continue
-        
+        SEQ = SEQ.strip().rstrip().upper()
+                
         # make list with string sequence
-        seq = list(seq)
-        
-        # make sure sequence string only contains nucleotides
-        alphabet = ["A", "C", "T", "G"]
-        for n in seq:
-            if n not in alphabet:
-                logging.debug("Sequence %d contains non-nucleotide characters" % (i - skip))
-                raise TypeError("Sequence %d contains non-nucleotide characters" % (i - skip))
-                sys.exit(0)
+        SEQ = list(SEQ)
 
         # process sequence according to nucleotide model
         if options.model == "dinucleotide":
             newseq = []
-            for n in range(0,len(seq)-1):
-                newseq.append(seq[n] + seq[n+1])
-            seq = newseq
+            for n in range(0,len(SEQ)-1):
+                newseq.append(SEQ[n] + SEQ[n+1])
+            SEQ = newseq
 
         ## run viterbi
-        path, probability = viterbi(states, startProb, transitionProb, emissionProb, seq)
+        path, probability = viterbi(states, startProb, transitionProb, emissionProb, SEQ)
 
-        logging.info('Found Viterbi path with probability %e.' % probability)
+        logging.info('Found Viterbi path for sequence %s with probability %e.' % (ID, probability))
 
         ## write output to files
         # add header
         out = [["Position", "State"]]
         # add remaining positions and state
         for pos in range(len(path)):
-            out.append([seq[pos], path[pos]])
+            out.append([SEQ[pos], path[pos]])
         
-        writeData(out, outfile + "_seq" + str(i) + ".tsv")
+        if ID == "":
+            writeData(out, outdir + "NucleoHMM_seq" + str(i) + ".tsv")
+        else:
+            writeData(out, outdir + "/" + ID + ".tsv")
         
         i += 1
 
@@ -246,7 +236,61 @@ def openSeqs(infile):
     """ Opens input file 'infile'. Returns list of lines from file."""
     with open(infile) as data_file:
         logging.info('Succesfully opened %s' % infile)
-        return data_file.readlines()
+        lines = data_file.readlines()
+    data_file.close()
+    # Fasta parser:
+    alphabet = ["A", "C", "T", "G"]
+    seqs = []
+    found = False
+
+    def checkAlphabet(seq, line, alphabet=alphabet):
+        """ Aborts program if 'seq' contains elements not in 'alphabet'"""
+        for n in seq.rstrip():
+            if n not in alphabet:
+                logging.debug("Sequence on line %d contains non-nucleotide characters" % line)
+                raise TypeError("Sequence on line %d contains non-nucleotide characters" % line)
+                sys.exit(0)
+
+    for line in range(0, len(lines)):
+        # skip header lines (not starting with ">")
+        if (lines[line][0] != ">" and found == False):
+            continue
+        # get sequence identifier
+        elif (lines[line][0] == ">"):
+            # prevent two consecutive ID lines
+            if (lines[line + 1][0] != ">"):
+                # extract ID: split lines in spaces, get first (identifier) and get rid of the '>' sign
+                ID = lines[line].rstrip().split(" ")[0].replace(">", "")
+                # mark finding of ID line
+                found = True
+                # initialize empty seq
+                SEQ = ""
+            else:
+                raise Exception("Input file malformated. Two consecutive identifier lines found at line %d." % (line + 1))
+                logging.info("Input file malformated. Two consecutive identifier lines found at line %d." % (line + 1))
+                sys.exit(0)
+        # sequence lines
+        elif found:
+            # if not last line
+            if (line != (len(lines) - 1)):
+                # if next line empty or ID line, append to seqs
+                if (lines[line + 1] != "" and lines[line + 1][0] != ">"):
+                    # just add line to sequence
+                    checkAlphabet(lines[line], line + 1)
+                    SEQ += lines[line].rstrip()
+                else:
+                    # add line to sequence and append to seqs. Finish seq
+                    checkAlphabet(lines[line], line + 1)
+                    SEQ += lines[line].rstrip()
+                    seqs.append((ID, SEQ))
+                    found = False
+            else:
+                # If last line just add to sequence and append to seqs. Finish seq
+                checkAlphabet(lines[line], line + 1)
+                SEQ += lines[line].rstrip()
+                seqs.append((ID, SEQ))
+                found = False
+    return seqs
 
 def viterbi(states, startProb, transitionProb, emissionProb, seq):
     """ Computes the Viterbi path of a sequence according to the given HMM model"""
