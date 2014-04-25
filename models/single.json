@@ -1,0 +1,29 @@
+[
+    "Bound",
+    "Not-bound"
+]{
+    "Bound": 0.0,
+    "Not-bound": 1.0
+}{
+    "Bound": {
+        "Bound": 0.53,
+        "Not-bound": 0.47
+    },
+    "Not-bound" : {
+        "Bound": 0.47,
+        "Not-bound": 0.53
+    }
+}{
+    "Bound" : {
+        "A": 0.27,
+        "C": 0.22,
+        "T": 0.28,
+        "G": 0.23
+    },
+    "Not-bound" : {
+        "A": 0.20,
+        "C": 0.30,
+        "T": 0.22,
+        "G": 0.28
+    }
+}
