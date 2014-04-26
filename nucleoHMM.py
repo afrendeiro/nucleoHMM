@@ -8,7 +8,7 @@ it under the terms of the GNU General Public License version 3 as
 published by the Free Software Foundation.
 """
 
-import os, sys, csv, logging, pickle, json
+import os, sys, csv, logging, pickle, json, pprint, random
 from optparse import OptionParser
 from math import *
 
@@ -22,9 +22,13 @@ def main():
     type="str", dest="model", default='single',
     help="Nucleotide model to use. Provided options: 'single'; 'dinucleotide'; Default: 'single'")
 
+    parser.add_option("-g", "--generateRandom",
+    type="int", dest="generate",
+    help="Generates random training set with length of argument (int) and exits. File written in 'models/random'")
+
     parser.add_option("-t", "--train",
     type="str", dest="train",
-    help="Tab-delimited data file to train model.")
+    help="Data file to train model.")
 
     parser.add_option("--model-output",
     type="str", dest="modeloutput", default="user",
@@ -38,7 +42,7 @@ def main():
     type="str", dest="outdir", default='output/',
     help="""Directory for output files. Default: to: output/
     Files will be named as the fasta identifier, if provided.
-    If no will be named based on sequence number with the following prefix: NucleoHMM_seq<seqnumber>.tsv""")
+    If empty, files will be named based on sequence number with the following prefix: NucleoHMM_seq<seqnumber>.tsv""")
 
     parser.add_option("-l", "--log",
     type="str", dest="log", default='logs/log.txt',
@@ -46,7 +50,7 @@ def main():
 
     # read arguments and options
     (options, args) = parser.parse_args()
-    if len(args) > 2 or len(args) == 0:
+    if len(args) > 1 or len(args) == 0:
         # return help mesage if argument number is incorrect
         print(__doc__)
         parser.print_help()
@@ -58,28 +62,64 @@ def main():
     # prepare directories for logs and output
     if not os.path.exists(os.path.dirname(options.log)):
         os.makedirs(os.path.dirname(options.log))
+        logging.info("Created directory to store logs: %s" % options.log)
     if not os.path.exists(os.path.dirname(options.outdir)):
         os.makedirs(os.path.dirname(options.outdir))
+        logging.info("Created directory for output: %s" % options.outdir)
 
-    # parse in/outfile argument
+    # get infile argument
     infile = args[0]
-    outdir = options.outdir
+
+    # make sure user-provided files exist
+    if not os.path.isfile(infile):
+        logging.info("Input file %s does not exist. Aborting." % infile)
+        print("Input file %s does not exist. Aborting." % infile)
+        sys.exit(0)
+    if options.train:
+        if not os.path.isfile(options.train):
+            logging.info("Training file %s does not exist. Aborting." % options.train)
+            print("Training file %s does not exist. Aborting." % options.train)
+            sys.exit(0)
+    
+    global alphabet
+    alphabet = ["A", "C", "T", "G"]
+    
+    global states
+    states = ('Bound', 'Not-bound')
+    
+    ####### Generate random training data
+    if options.generate:
+        generateData('tests/random.tsv', options.generate, alphabet=alphabet, states=states)
+        logging.info("Program finished. Generated random training data. Output: 'tests/random.tsv'.")
+        print("Program finished. Generated random training data. Output: 'tests/random.tsv'.")
+        sys.exit(0)
 
     ####### Train model on data
     if options.train:
+        print("Training model with provided data...")
         trainingData = openData(options.train)
 
         transitionProb, emissionProb = trainModel(trainingData)
         
         # Add initial parameters to model (assuming start always on 'Not-bound' state!)
-        states = ('Bound', 'Not-bound')
         startProb = {'Bound': 0.5, 'Not-bound': 0.5}
 
         saveModel("models/" + options.modeloutput, states, startProb, transitionProb, emissionProb)
+
+        # Print trained parameters
+        print("Model trained.")
+        print("Start probabilities:")
+        pprint.pprint(startProb, indent=4)
+        print("Transition probabilities:")
+        pprint.pprint(transitionProb, indent=4)
+        print("Emission probabilities:")
+        pprint.pprint(emissionProb, indent=4)
+
         options.model = "user"
 
         if options.trainonly:
-            print("Program finished. Trained model with provided sequences")
+            logging.info("Program finished. Trained model with provided data.")
+            print("Program finished. Trained model with provided data.")
             sys.exit(0)
 
     # choose model to work with
@@ -99,7 +139,6 @@ def main():
     ####### Start predicting
     seqs = openSeqs(infile)
     i = 1
-    skip = 0
     
     for ID, SEQ in seqs:
         ## preprocess sequence
@@ -128,14 +167,25 @@ def main():
             out.append([SEQ[pos], path[pos]])
         
         if ID == "":
-            writeData(out, outdir + "NucleoHMM_seq" + str(i) + ".tsv")
+            writeData(out, options.outdir + "NucleoHMM_seq" + str(i) + ".tsv")
+            print("Processed sequence nº %d. Output:" % (i), "'" + options.outdir + "NucleoHMM_seq" + str(i) + ".tsv'")
         else:
-            writeData(out, outdir + "/" + ID + ".tsv")
+            writeData(out, options.outdir + "/" + ID + ".tsv")
+            print("Processed sequence nº %d. Output:" % (i), "'" + options.outdir + "/" + ID + ".tsv'")
         
         i += 1
 
-    logging.info('Program finished. Processed %d sequences' % (i - 1 - skip))
-    print("Program finished. Processed %d sequences" % (i - 1 - skip))
+    logging.info('Program finished. Processed %d sequences' % (i - 1))
+    print("Program finished. Processed %d sequences" % (i - 1))
+
+def generateData(outfile, length, alphabet, states):
+    """ Creates random data that can be used to train the model."""
+    with open(outfile, 'w') as tsvfile:
+        wr = csv.writer(tsvfile, delimiter='\t')
+        for i in range(0,length):
+            wr.writerow((random.choice(alphabet), random.choice(states)))
+        tsvfile.close()
+        logging.info('Succesfully created random training data. Output: %s' % outfile)
 
 def openData(infile):
     """ Opens data file 'infile' with nucleossome data to train. Returns list of tuples from all data lines in file."""
@@ -238,8 +288,8 @@ def openSeqs(infile):
         logging.info('Succesfully opened %s' % infile)
         lines = data_file.readlines()
     data_file.close()
+    
     # Fasta parser:
-    alphabet = ["A", "C", "T", "G"]
     seqs = []
     found = False
 
