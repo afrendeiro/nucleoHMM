@@ -27,6 +27,11 @@ Supply an integer argument to the *'-g'* option to generate random training data
 
     python3 nucleoHMM.py -g 10000
 
+### Provided test files
+The entire yeast chromossome 1 (*'tests/yeast_chr1.fa'*) is provided as example. *In vivo* nucleossome position data was extracted from the the 2006 [Segal *et. al.* Nature](http://www.nature.com/nature/journal/v442/n7104/full/nature04979.html) publication and is available [here](http://genie.weizmann.ac.il/pubs/nucleosomes06/segal06_data.html). Positions bound by nucleossomes were annotated as 'Bound' and the rest of chromossome 1 as 'Not-bound'. Available in the *'tests/yeast_chr1_500.tsv'* file.
+
+A subset (first 500 bp) of this data is available as *'tests/yeast_chr1_500.tsv'*
+
 # Input
 nucleoHMM accepts [FASTA](http://en.wikipedia.org/wiki/FASTA_format) files as input. It supports only the DNA alphabet (A,C,G,T).
 
