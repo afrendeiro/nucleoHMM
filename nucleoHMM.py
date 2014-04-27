@@ -15,12 +15,12 @@ from math import *
 
 def main():
     # option parser
-    usage = 'python NucleoHMM.py [-m -o -l] seq.tsv'
+    usage = 'python NucleoHMM.py [-m -g -t -o -l] seq.tsv'
     parser = OptionParser(usage=usage)
 
     parser.add_option("-m", "--model",
     type="str", dest="model", default='single',
-    help="Nucleotide model to use. Provided options: 'single'; 'dinucleotide'; Default: 'single'")
+    help="Nucleotide model to use. Options: 'single' or 'dinucleotide'; Default: 'single'")
 
     parser.add_option("-g", "--generateRandom",
     type="int", dest="generate",
@@ -35,8 +35,8 @@ def main():
     help="File to ouput trained model. Default to: models/user")
 
     parser.add_option("--train-only",
-    type="str", dest="trainonly",
-    help="Train model only and exit.")
+    dest="trainonly", action="store_true",
+    help="Flag to only train model and then exit.")
 
     parser.add_option("-o", "--outputDir",
     type="str", dest="outdir", default='output/',
@@ -50,7 +50,8 @@ def main():
 
     # read arguments and options
     (options, args) = parser.parse_args()
-    if len(args) > 1 or len(args) == 0:
+
+    if len(args) > 1 or (len(args) == 0 and options.trainonly == None and type(options.generate) != type(int())):
         # return help mesage if argument number is incorrect
         print(__doc__)
         parser.print_help()
@@ -67,20 +68,6 @@ def main():
         os.makedirs(os.path.dirname(options.outdir))
         logging.info("Created directory for output: %s" % options.outdir)
 
-    # get infile argument
-    infile = args[0]
-
-    # make sure user-provided files exist
-    if not os.path.isfile(infile):
-        logging.info("Input file %s does not exist. Aborting." % infile)
-        print("Input file %s does not exist. Aborting." % infile)
-        sys.exit(0)
-    if options.train:
-        if not os.path.isfile(options.train):
-            logging.info("Training file %s does not exist. Aborting." % options.train)
-            print("Training file %s does not exist. Aborting." % options.train)
-            sys.exit(0)
-    
     global alphabet
     alphabet = ["A", "C", "T", "G"]
     
@@ -97,9 +84,15 @@ def main():
     ####### Train model on data
     if options.train:
         print("Training model with provided data...")
+        # make sure training file exist
+        if not os.path.isfile(options.train):
+            logging.info("Training file %s does not exist. Aborting." % options.train)
+            print("Training file %s does not exist. Aborting." % options.train)
+            sys.exit(0)
+
         trainingData = openData(options.train)
 
-        transitionProb, emissionProb = trainModel(trainingData)
+        transitionProb, emissionProb = trainModel(trainingData, options.model)
         
         # Add initial parameters to model (assuming start always on 'Not-bound' state!)
         startProb = {'Bound': 0.5, 'Not-bound': 0.5}
@@ -115,29 +108,32 @@ def main():
         print("Emission probabilities:")
         pprint.pprint(emissionProb, indent=4)
 
-        options.model = "user"
-
         if options.trainonly:
-            logging.info("Program finished. Trained model with provided data.")
-            print("Program finished. Trained model with provided data.")
+            logging.info("Program finished. Trained %s nucleotide model with provided data. Saved in '%s'." % (options.model, "models/" + options.modeloutput))
+            print("Program finished. Trained %s nucleotide model with provided data. Saved in '%s'." % (options.model, "models/" + options.modeloutput))
             sys.exit(0)
 
-    # choose model to work with
-    if options.model == "single":
-        states, startProb, transitionProb, emissionProb = loadModel("models/" + options.model)
-        logging.info('Chose the single nucleotide model')
-    elif options.model == "dinucleotide":
-        states, startProb, transitionProb, emissionProb = loadModel("models/" + options.model)
-        logging.info('Chose the single dinucleotide model')
-    elif options.model == "user":
-        states, startProb, transitionProb, emissionProb = loadModel("models/" + options.modeloutput)
-        logging.info('Chose the nucleotide model trained by user')
-    else:
-        states, startProb, transitionProb, emissionProb = loadModel("models/" + options.model)
-        logging.info('Chose a nucleotide model previously trained by user')
-
-    ####### Start predicting
+    ####### Predict using model
+    # get infile argument
+    infile = args[0]
+    # make sure file exists
+    if not os.path.isfile(infile):
+        logging.info("Input file %s does not exist. Aborting." % infile)
+        print("Input file %s does not exist. Aborting." % infile)
+        sys.exit(0)
+    
     seqs = openSeqs(infile)
+
+    # if not trained, use preovided model, else is already loaded
+    if not options.train:
+        # load predefined model
+        if options.model == "single":
+            states, startProb, transitionProb, emissionProb = loadModel("models/" + options.model)
+            logging.info('Chose the single nucleotide model')
+        elif options.model == "dinucleotide":
+            states, startProb, transitionProb, emissionProb = loadModel("models/" + options.model)
+            logging.info('Chose the single dinucleotide model')
+
     i = 1
     
     for ID, SEQ in seqs:
@@ -149,9 +145,10 @@ def main():
 
         # process sequence according to nucleotide model
         if options.model == "dinucleotide":
+            print("dinuc")
             newseq = []
             for n in range(0,len(SEQ)-1):
-                newseq.append(SEQ[n] + SEQ[n+1])
+                newseq.append(SEQ[n] + SEQ[n + 1])
             SEQ = newseq
 
         ## run viterbi
@@ -164,7 +161,12 @@ def main():
         out = [["Position", "State"]]
         # add remaining positions and state
         for pos in range(len(path)):
-            out.append([SEQ[pos], path[pos]])
+            # process sequence according to nucleotide model
+            if options.model == "single":
+                out.append([SEQ[pos], path[pos]])
+            elif options.model == "dinucleotide":
+                print("dinuc")
+                out.append([SEQ[pos][0], path[pos]])
         
         if ID == "":
             writeData(out, options.outdir + "NucleoHMM_seq" + str(i) + ".tsv")
@@ -182,10 +184,10 @@ def generateData(outfile, length, alphabet, states):
     """ Creates random data that can be used to train the model."""
     with open(outfile, 'w') as tsvfile:
         wr = csv.writer(tsvfile, delimiter='\t')
-        for i in range(0,length):
+        for i in range(0, length):
             wr.writerow((random.choice(alphabet), random.choice(states)))
-        tsvfile.close()
-        logging.info('Succesfully created random training data. Output: %s' % outfile)
+    tsvfile.close()
+    logging.info('Succesfully created random training data. Output: %s' % outfile)
 
 def openData(infile):
     """ Opens data file 'infile' with nucleossome data to train. Returns list of tuples from all data lines in file."""
@@ -193,7 +195,7 @@ def openData(infile):
         i = 0
         lines = []
         for line in data_file:
-            # skip header line
+            # skip header line # fix this to detect presence of header
             if i == 0:
                 i += 1
                 continue
@@ -206,11 +208,25 @@ def openData(infile):
             i += 1
     return lines
 
-def trainModel(data):
+def trainModel(data, model='single'):
     """ Trains the model with provided data. Outputs the model transition and emission probabilities."""
     # Initialize model structure with 0 counts
     transitionProb = {'Bound' : {'Bound' : 0, 'Not-bound' : 0}, 'Not-bound' : {'Bound' : 0, 'Not-bound' : 0}}
-    emissionProb = {'Bound' : {'A' : 0, 'C' : 0, 'G' : 0, 'T' : 0}, 'Not-bound' : {'A' : 0, 'C' : 0, 'G' : 0, 'T' : 0}}
+
+    if model == 'single':
+        emissionProb = {'Bound' : {'A' : 0, 'C' : 0, 'G' : 0, 'T' : 0}, 'Not-bound' : {'A' : 0, 'C' : 0, 'G' : 0, 'T' : 0}}
+    elif model == 'dinucleotide':
+        emissionProb = {
+            'Bound' : {'AA': 0, 'AC': 0, 'AT': 0, 'AG': 0, 'CA': 0, 'CC': 0, 'CG': 0, 'CT': 0, 
+                'GA': 0, 'GC': 0, 'GG': 0, 'GT': 0, 'TA': 0, 'TC': 0, 'TG': 0, 'TT': 0 },
+            'Not-bound' : {'AA': 0, 'AC': 0, 'AT': 0, 'AG': 0, 'CA': 0, 'CC': 0, 'CG': 0, 'CT': 0, 
+                'GA': 0, 'GC': 0, 'GG': 0, 'GT': 0, 'TA': 0, 'TC': 0, 'TG': 0, 'TT': 0 }
+        }
+        # process sequence according to nucleotide model
+        newdata = []
+        for t in range(0,len(data) - 1):
+            newdata.append((data[t][0] + data[t + 1][0], data[t][1]))
+        data = newdata
     
     # keep track of state occurance
     stateOccur = {'Bound' : 0.0, 'Not-bound' : 0.0}
@@ -284,63 +300,46 @@ def loadModel(pickle_obj):
 
 def openSeqs(infile):
     """ Opens input file 'infile'. Returns list of lines from file."""
-    with open(infile) as data_file:
-        logging.info('Succesfully opened %s' % infile)
-        lines = data_file.readlines()
-    data_file.close()
-    
-    # Fasta parser:
-    seqs = []
-    found = False
 
-    def checkAlphabet(seq, line, alphabet=alphabet):
+    def checkAlphabet(seq, alphabet=alphabet):
         """ Aborts program if 'seq' contains elements not in 'alphabet'"""
         for n in seq.rstrip():
             if n not in alphabet:
-                logging.debug("Sequence on line %d contains non-nucleotide characters" % line)
-                raise TypeError("Sequence on line %d contains non-nucleotide characters" % line)
+                logging.debug("Sequence contains non-nucleotide characters")
+                raise TypeError("Sequence contains non-nucleotide characters")
                 sys.exit(0)
 
-    for line in range(0, len(lines)):
-        # skip header lines (not starting with ">")
-        if (lines[line][0] != ">" and found == False):
-            continue
-        # get sequence identifier
-        elif (lines[line][0] == ">"):
-            # prevent two consecutive ID lines
-            if (lines[line + 1][0] != ">"):
-                # extract ID: split lines in spaces, get first (identifier) and get rid of the '>' sign
-                ID = lines[line].rstrip().split(" ")[0].replace(">", "")
-                # mark finding of ID line
-                found = True
-                # initialize empty seq
-                SEQ = ""
-            else:
-                raise Exception("Input file malformated. Two consecutive identifier lines found at line %d." % (line + 1))
-                logging.info("Input file malformated. Two consecutive identifier lines found at line %d." % (line + 1))
-                sys.exit(0)
-        # sequence lines
-        elif found:
-            # if not last line
-            if (line != (len(lines) - 1)):
-                # if next line empty or ID line, append to seqs
-                if (lines[line + 1] != "" and lines[line + 1][0] != ">"):
-                    # just add line to sequence
-                    checkAlphabet(lines[line], line + 1)
-                    SEQ += lines[line].rstrip()
-                else:
-                    # add line to sequence and append to seqs. Finish seq
-                    checkAlphabet(lines[line], line + 1)
-                    SEQ += lines[line].rstrip()
-                    seqs.append((ID, SEQ))
-                    found = False
-            else:
-                # If last line just add to sequence and append to seqs. Finish seq
-                checkAlphabet(lines[line], line + 1)
-                SEQ += lines[line].rstrip()
-                seqs.append((ID, SEQ))
-                found = False
-    return seqs
+    with open(infile) as data_file:
+        logging.info('Succesfully opened %s' % infile)
+
+        # Fasta parser
+        while True:
+            line = data_file.readline()
+            if line == "":
+                return  # Premature end of file, or just empty?
+            if line[0] == ">":
+                break
+
+        while True:
+            if line[0] != ">":
+                raise ValueError("Records in Fasta files should start with '>' character")
+            ID = line[1:].rstrip().split(" ")[0]
+            seqs = []
+            line = data_file.readline()
+            while True:
+                if not line:
+                    break
+                if line[0] == ">":
+                    break
+                checkAlphabet(line)
+                seqs.append(line.rstrip())
+                line = data_file.readline()
+
+            yield ID, "".join(seqs).replace(" ", "").replace("\r", "")
+
+            if not line:
+                print("not line")
+                return  # StopIteration
 
 def viterbi(states, startProb, transitionProb, emissionProb, seq):
     """ Computes the Viterbi path of a sequence according to the given HMM model"""
