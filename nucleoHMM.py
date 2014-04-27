@@ -52,7 +52,7 @@ def main():
     (options, args) = parser.parse_args()
 
     if len(args) > 1 or (len(args) == 0 and options.trainonly == None and type(options.generate) != type(int())):
-        # return help mesage if argument number is incorrect
+        # return help message if argument number is incorrect
         print(__doc__)
         parser.print_help()
         sys.exit(0)
@@ -312,25 +312,27 @@ def openSeqs(infile):
     with open(infile) as data_file:
         logging.info('Succesfully opened %s' % infile)
 
-        # Fasta parser
+        ### Fasta parser
+        # skip empty lines
         while True:
             line = data_file.readline()
             if line == "":
-                return  # Premature end of file, or just empty?
+                continue
             if line[0] == ">":
                 break
 
         while True:
             if line[0] != ">":
-                raise ValueError("Records in Fasta files should start with '>' character")
+                raise ValueError("Records in Fasta format start with the '>' character")
+            # get seq ID
             ID = line[1:].rstrip().split(" ")[0]
             seqs = []
             line = data_file.readline()
             while True:
                 if not line:
-                    break
+                    break # end of file, end while
                 if line[0] == ">":
-                    break
+                    break # new seq
                 checkAlphabet(line)
                 seqs.append(line.rstrip())
                 line = data_file.readline()
@@ -338,8 +340,7 @@ def openSeqs(infile):
             yield ID, "".join(seqs).replace(" ", "").replace("\r", "")
 
             if not line:
-                print("not line")
-                return  # StopIteration
+                return  # end
 
 def viterbi(states, startProb, transitionProb, emissionProb, seq):
     """ Computes the Viterbi path of a sequence according to the given HMM model"""
